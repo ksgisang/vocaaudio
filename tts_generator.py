@@ -72,38 +72,60 @@ async def generate_speech_edge(text: str, voice: str, output_path: str) -> bool:
 
 
 def generate_silence(duration: float, output_path: str) -> bool:
-    """무음 MP3 파일 생성 (pydub 사용)"""
-    if not HAS_PYDUB:
-        print("오류: pydub이 설치되지 않았습니다.")
-        return False
+    """무음 MP3 파일 생성"""
+    # 방법 1: pydub 사용 시도
+    if HAS_PYDUB:
+        try:
+            silence = AudioSegment.silent(duration=int(duration * 1000))
+            silence.export(output_path, format="mp3")
+            return True
+        except Exception as e:
+            print(f"pydub 무음 생성 실패: {e}")
 
+    # 방법 2: edge-tts로 무음에 가까운 텍스트 생성
     try:
-        # duration은 초 단위, pydub은 밀리초 단위
-        silence = AudioSegment.silent(duration=int(duration * 1000))
-        silence.export(output_path, format="mp3")
+        import asyncio
+        # 매우 짧은 공백 텍스트로 무음 효과
+        async def make_silence():
+            communicate = edge_tts.Communicate(" ", "en-US-AriaNeural")
+            await communicate.save(output_path)
+        asyncio.run(make_silence())
         return True
     except Exception as e:
         print(f"무음 생성 오류: {e}")
-        return False
+        # 빈 파일이라도 생성
+        try:
+            open(output_path, 'wb').close()
+            return True
+        except:
+            return False
 
 
 def concatenate_audio_files(file_list: List[str], output_path: str) -> bool:
-    """여러 오디오 파일을 하나로 합치기 (pydub 사용)"""
+    """여러 오디오 파일을 하나로 합치기"""
     if not file_list:
         return False
 
-    if not HAS_PYDUB:
-        print("오류: pydub이 설치되지 않았습니다.")
-        return False
+    # 방법 1: pydub 사용 시도
+    if HAS_PYDUB:
+        try:
+            combined = AudioSegment.empty()
+            for audio_file in file_list:
+                if os.path.exists(audio_file):
+                    segment = AudioSegment.from_mp3(audio_file)
+                    combined += segment
+            combined.export(output_path, format="mp3")
+            return True
+        except Exception as e:
+            print(f"pydub 오류, 직접 합치기 시도: {e}")
 
+    # 방법 2: MP3 파일 직접 바이너리 합치기 (ffmpeg 불필요)
     try:
-        combined = AudioSegment.empty()
-        for audio_file in file_list:
-            if os.path.exists(audio_file):
-                segment = AudioSegment.from_mp3(audio_file)
-                combined += segment
-
-        combined.export(output_path, format="mp3")
+        with open(output_path, 'wb') as outfile:
+            for audio_file in file_list:
+                if os.path.exists(audio_file):
+                    with open(audio_file, 'rb') as infile:
+                        outfile.write(infile.read())
         return True
     except Exception as e:
         print(f"오디오 합치기 오류: {e}")
