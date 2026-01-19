@@ -555,12 +555,13 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
 
             # 에러 체크
             if 'error' in result:
-                error_msg = result['error'].get('message', str(result['error']))
-                # 404 에러면 다음 모델 시도
-                if result['error'].get('code') == 404:
+                error_code = result['error'].get('code')
+                # 404 (모델 없음) 또는 429 (할당량 초과)면 다음 모델 시도
+                if error_code in [404, 429]:
+                    last_error = Exception(f"모델 {model_name}: {error_code} 에러")
                     continue
-                # 429 할당량 에러면 예외 발생
-                raise Exception(f"{result['error'].get('code')} {result['error'].get('status')}. {result['error']}")
+                # 다른 에러면 예외 발생
+                raise Exception(f"{error_code} {result['error'].get('status')}. {result['error'].get('message', '')}")
 
             # 응답 추출
             if 'candidates' in result and result['candidates']:
@@ -583,12 +584,12 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
                 return vocab_list
 
         except json.JSONDecodeError:
+            # JSON 파싱 실패 시 다음 모델 시도
             continue
         except Exception as e:
             last_error = e
-            # 404가 아닌 에러면 바로 예외 발생
-            if '404' not in str(e):
-                raise
+            # 계속 다음 모델 시도 (모든 모델 실패 시 마지막 에러 반환)
+            continue
 
     # 모든 모델 실패
     if last_error:
