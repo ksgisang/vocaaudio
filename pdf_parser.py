@@ -515,12 +515,13 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
 - 2단으로 된 경우 왼쪽 단부터 순서대로
 - JSON만 출력하고 다른 설명은 하지 마세요"""
 
-    # 여러 모델 시도 (최신 모델 우선 - NotebookLM과 동일)
+    # 여러 모델 시도 (무료 티어 사용 가능한 모델 우선)
     models_to_try = [
-        'gemini-2.0-flash',           # 최신 (NotebookLM 사용 모델)
-        'gemini-2.0-flash-exp',       # 실험 버전
+        'gemini-1.5-flash',           # 무료 티어 OK, 빠름
         'gemini-1.5-flash-latest',
+        'gemini-1.5-pro',             # 무료 티어 OK, 더 정확
         'gemini-1.5-pro-latest',
+        'gemini-2.0-flash-exp',       # 유료 또는 실험 (fallback)
     ]
 
     last_error = None
