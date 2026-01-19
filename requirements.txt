@@ -13,7 +13,8 @@ pymupdf>=1.23.0
 # Google Cloud Vision (OCR)
 google-cloud-vision>=3.4.0
 
-# Google Gemini AI (공식 SDK)
+# Google Gemini AI (공식 SDK - 새 버전과 구 버전 모두)
+google-genai>=1.0.0
 google-generativeai>=0.4.0
 
 # Anthropic Claude Vision (추천 - 표 형식 단어장에 최적)

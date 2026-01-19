@@ -471,7 +471,7 @@ def load_vocab_from_text(file_path: str) -> List[VocabItem]:
 def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[VocabItem]:
     """
     Google Gemini Vision API로 이미지에서 단어 목록 직접 추출
-    공식 SDK 사용
+    새로운 google-genai SDK 사용
 
     Args:
         image_path: 이미지 파일 경로
@@ -481,14 +481,7 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
         VocabItem 리스트
     """
     import json
-    import google.generativeai as genai
     from PIL import Image
-
-    # API 키 설정
-    genai.configure(api_key=api_key)
-
-    # 이미지 로드
-    img = Image.open(image_path)
 
     prompt = """이 이미지는 영어 단어장입니다.
 이미지에서 모든 영어 단어와 한국어 뜻을 추출해주세요.
@@ -507,53 +500,86 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
 - 2단으로 된 경우 왼쪽 단부터 순서대로
 - JSON만 출력하고 다른 설명은 하지 마세요"""
 
-    # 무료 티어에서 작동하는 모델 시도 (다양한 이름 형식)
+    # 이미지 로드
+    img = Image.open(image_path)
+
+    # 시도할 모델 목록
     models_to_try = [
+        'gemini-2.0-flash',
         'gemini-1.5-flash',
         'gemini-1.5-pro',
-        'gemini-pro-vision',      # 구버전 (이미지 지원)
-        'models/gemini-1.5-flash',
-        'models/gemini-pro-vision',
     ]
+
     last_error = None
     errors_log = []
 
-    for model_name in models_to_try:
+    # 방법 1: 새로운 google-genai SDK 시도
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+
+        for model_name in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt, img]
+                )
+                response_text = response.text.strip()
+
+                # JSON 추출
+                if '```json' in response_text:
+                    response_text = response_text.split('```json')[1].split('```')[0]
+                elif '```' in response_text:
+                    response_text = response_text.split('```')[1].split('```')[0]
+
+                vocab_data = json.loads(response_text.strip())
+                vocab_list = []
+                for item in vocab_data:
+                    vocab_list.append(VocabItem(
+                        number=int(item.get('number', len(vocab_list) + 1)),
+                        word=item.get('word', ''),
+                        meaning=item.get('meaning', '')
+                    ))
+                return vocab_list
+
+            except Exception as e:
+                errors_log.append(f"{model_name}: {str(e)[:30]}")
+                last_error = e
+                continue
+
+    except ImportError:
+        # 방법 2: 구버전 google-generativeai SDK
         try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content([prompt, img])
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
 
-            response_text = response.text.strip()
+            for model_name in models_to_try:
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    response = model.generate_content([prompt, img])
+                    response_text = response.text.strip()
 
-            # JSON 추출 (코드 블록 안에 있을 수 있음)
-            if '```json' in response_text:
-                response_text = response_text.split('```json')[1].split('```')[0]
-            elif '```' in response_text:
-                response_text = response_text.split('```')[1].split('```')[0]
+                    if '```json' in response_text:
+                        response_text = response_text.split('```json')[1].split('```')[0]
+                    elif '```' in response_text:
+                        response_text = response_text.split('```')[1].split('```')[0]
 
-            vocab_data = json.loads(response_text.strip())
-            vocab_list = []
-            for item in vocab_data:
-                vocab_list.append(VocabItem(
-                    number=int(item.get('number', len(vocab_list) + 1)),
-                    word=item.get('word', ''),
-                    meaning=item.get('meaning', '')
-                ))
-            return vocab_list
+                    vocab_data = json.loads(response_text.strip())
+                    vocab_list = []
+                    for item in vocab_data:
+                        vocab_list.append(VocabItem(
+                            number=int(item.get('number', len(vocab_list) + 1)),
+                            word=item.get('word', ''),
+                            meaning=item.get('meaning', '')
+                        ))
+                    return vocab_list
 
-        except json.JSONDecodeError as e:
-            errors_log.append(f"{model_name}: JSON 파싱 실패")
-            continue
-        except Exception as e:
-            error_str = str(e)
-            if '429' in error_str or 'quota' in error_str.lower():
-                errors_log.append(f"{model_name}: 할당량 초과")
-            elif '404' in error_str:
-                errors_log.append(f"{model_name}: 모델 없음")
-            else:
-                errors_log.append(f"{model_name}: {error_str[:50]}")
-            last_error = e
-            continue
+                except Exception as e:
+                    errors_log.append(f"{model_name}: {str(e)[:30]}")
+                    last_error = e
+                    continue
+        except ImportError:
+            raise Exception("Google Gemini SDK가 설치되지 않았습니다.")
 
     # 모든 모델 실패
     if errors_log:
