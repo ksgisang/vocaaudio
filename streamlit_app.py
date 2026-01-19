@@ -46,6 +46,57 @@ def get_api_key():
     return st.session_state.get('api_key', None)
 
 
+def process_image_ocr(image_path: str, ocr_method: str, st_module) -> list:
+    """이미지에서 OCR로 단어 추출하는 공통 함수"""
+    if ocr_method == "Gemini Vision (무료/추천)":
+        gemini_key = st.session_state.get('gemini_api_key', '')
+        if not gemini_key:
+            st_module.error("❌ 사이드바에서 Gemini API 키를 입력해주세요.")
+            return []
+        st_module.info("🤖 Gemini Vision으로 단어 추출 중...")
+        return extract_vocab_with_gemini_vision(image_path, gemini_key)
+
+    elif ocr_method == "Claude Vision":
+        anthropic_key = st.session_state.get('anthropic_api_key', '')
+        if not anthropic_key:
+            st_module.error("❌ 사이드바에서 Anthropic API 키를 입력해주세요.")
+            return []
+        st_module.info("🤖 Claude Vision으로 단어 추출 중...")
+        return extract_vocab_with_claude_vision(image_path, anthropic_key)
+
+    else:
+        # Google Cloud Vision
+        from PIL import Image
+        api_key = st.session_state.get('api_key', None)
+        img = Image.open(image_path)
+
+        if img.width > img.height:
+            img = img.rotate(-90, expand=True)
+            st_module.info("📐 가로 이미지 감지 - 자동 회전 적용")
+
+        full_text = ""
+        width, height = img.size
+
+        for idx, (left, right) in enumerate([(0, width // 2), (width // 2, width)]):
+            crop_img = img.crop((left, 0, right, height))
+            crop_path = image_path + f"_crop{idx}.jpg"
+            crop_img.save(crop_path, "JPEG", quality=95)
+
+            text = extract_text_from_image(
+                crop_path,
+                two_column=False,
+                use_cloud_vision=bool(api_key),
+                api_key=api_key
+            )
+            full_text += text + "\n"
+
+            if os.path.exists(crop_path):
+                os.unlink(crop_path)
+
+        st.session_state.ocr_text = full_text
+        return parse_text_to_vocab(full_text)
+
+
 def parse_text_to_vocab(text: str) -> list:
     """텍스트를 VocabItem 리스트로 변환"""
     vocab_list = []
@@ -185,131 +236,141 @@ def main():
         pause = st.slider("단어 간격 (초)", 0.5, 5.0, 2.0, 0.5)
 
     # 메인 영역: 탭
-    tab1, tab2, tab3 = st.tabs(["📷 이미지 업로드", "📝 텍스트 입력", "📋 단어 목록"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📷 카메라 촬영", "🖼️ 이미지/PDF", "📝 텍스트 입력", "📋 단어 목록"])
 
-    # 탭 1: 이미지 업로드
+    # 탭 1: 카메라 촬영 (스마트폰용)
     with tab1:
-        st.markdown("**스마트폰으로 촬영한 단어장 사진을 업로드하세요**")
+        st.markdown("**스마트폰 카메라로 단어장을 바로 촬영하세요**")
+
+        camera_image = st.camera_input("카메라로 촬영", key="camera")
+
+        if camera_image:
+            if st.button("🔍 촬영 이미지에서 텍스트 추출", type="primary", key="camera_ocr"):
+                with st.spinner("텍스트 추출 중..."):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
+                        tmp.write(camera_image.getvalue())
+                        tmp_path = tmp.name
+
+                    try:
+                        ocr_method = st.session_state.get('ocr_method', 'Gemini Vision (무료/추천)')
+                        vocab_list = process_image_ocr(tmp_path, ocr_method, st)
+                        if vocab_list:
+                            st.session_state.vocab_list = vocab_list
+                            st.session_state.ocr_text = "\n".join([
+                                f"{v.number}. {v.word} - {v.meaning}"
+                                for v in vocab_list
+                            ])
+                            st.success(f"✅ {len(vocab_list)}개 단어 추출 완료!")
+                    except Exception as e:
+                        st.error(f"OCR 오류: {e}")
+                    finally:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+
+    # 탭 2: 이미지/PDF 업로드
+    with tab2:
+        st.markdown("**이미지 또는 PDF 파일을 업로드하세요**")
 
         uploaded_file = st.file_uploader(
-            "이미지 선택",
-            type=['jpg', 'jpeg', 'png'],
-            help="단어장 사진을 업로드하면 자동으로 텍스트를 추출합니다."
+            "파일 선택",
+            type=['jpg', 'jpeg', 'png', 'pdf'],
+            help="단어장 이미지나 PDF를 업로드하면 자동으로 텍스트를 추출합니다."
         )
 
         if uploaded_file:
-            col1, col2 = st.columns(2)
+            file_ext = Path(uploaded_file.name).suffix.lower()
+            is_pdf = file_ext == '.pdf'
 
-            with col1:
-                st.image(uploaded_file, caption="업로드된 이미지", use_container_width=True)
+            if not is_pdf:
+                # 이미지 미리보기
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(uploaded_file, caption="업로드된 이미지", use_container_width=True)
+                with col2:
+                    extract_btn = st.button("🔍 텍스트 추출 (OCR)", type="primary", key="img_ocr")
+            else:
+                # PDF 안내
+                st.info(f"📄 PDF 파일: {uploaded_file.name}")
+                extract_btn = st.button("🔍 PDF에서 텍스트 추출", type="primary", key="pdf_ocr")
 
-            with col2:
-                if st.button("🔍 텍스트 추출 (OCR)", type="primary"):
-                    with st.spinner("텍스트 추출 중..."):
-                        # 임시 파일로 저장
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp:
-                            tmp.write(uploaded_file.getvalue())
-                            tmp_path = tmp.name
+            if extract_btn:
+                with st.spinner("텍스트 추출 중..."):
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                        tmp.write(uploaded_file.getvalue())
+                        tmp_path = tmp.name
 
-                        try:
-                            ocr_method = st.session_state.get('ocr_method', 'Gemini Vision (무료/추천)')
+                    try:
+                        ocr_method = st.session_state.get('ocr_method', 'Gemini Vision (무료/추천)')
 
-                            if ocr_method == "Gemini Vision (무료/추천)":
-                                # Gemini Vision 사용
-                                gemini_key = st.session_state.get('gemini_api_key', '')
-                                if not gemini_key:
-                                    st.error("❌ 사이드바에서 Gemini API 키를 입력해주세요.")
-                                else:
-                                    st.info("🤖 Gemini Vision으로 단어 추출 중...")
+                        if is_pdf:
+                            # PDF 처리: 각 페이지를 이미지로 변환 후 OCR
+                            st.info("📄 PDF 페이지를 처리 중...")
+                            from pdf_parser import extract_vocab_from_pdf, extract_text_from_pdf
+                            try:
+                                import fitz  # PyMuPDF
+                                doc = fitz.open(tmp_path)
+                                all_vocab = []
 
-                                    vocab_list = extract_vocab_with_gemini_vision(tmp_path, gemini_key)
+                                for page_num, page in enumerate(doc):
+                                    st.text(f"페이지 {page_num + 1}/{len(doc)} 처리 중...")
+                                    # 페이지를 이미지로 변환
+                                    mat = fitz.Matrix(2.0, 2.0)  # 2x 해상도
+                                    pix = page.get_pixmap(matrix=mat)
+                                    img_path = tmp_path + f"_page{page_num}.png"
+                                    pix.save(img_path)
 
+                                    # OCR 실행
+                                    vocab_list = process_image_ocr(img_path, ocr_method, st)
                                     if vocab_list:
-                                        st.session_state.vocab_list = vocab_list
-                                        st.session_state.ocr_text = "\n".join([
-                                            f"{v.number}. {v.word} - {v.meaning}"
-                                            for v in vocab_list
-                                        ])
-                                        st.success(f"✅ {len(vocab_list)}개 단어 추출 완료!")
-                                    else:
-                                        st.error("단어를 추출할 수 없습니다. 이미지를 확인해주세요.")
+                                        all_vocab.extend(vocab_list)
 
-                            elif ocr_method == "Claude Vision":
-                                # Claude Vision 사용
-                                anthropic_key = st.session_state.get('anthropic_api_key', '')
-                                if not anthropic_key:
-                                    st.error("❌ 사이드바에서 Anthropic API 키를 입력해주세요.")
+                                    if os.path.exists(img_path):
+                                        os.unlink(img_path)
+
+                                doc.close()
+
+                                if all_vocab:
+                                    # 번호 재정렬
+                                    for i, v in enumerate(all_vocab):
+                                        v.number = i + 1
+                                    st.session_state.vocab_list = all_vocab
+                                    st.session_state.ocr_text = "\n".join([
+                                        f"{v.number}. {v.word} - {v.meaning}"
+                                        for v in all_vocab
+                                    ])
+                                    st.success(f"✅ {len(all_vocab)}개 단어 추출 완료!")
                                 else:
-                                    st.info("🤖 Claude Vision으로 단어 추출 중...")
+                                    st.error("PDF에서 단어를 추출할 수 없습니다.")
 
-                                    vocab_list = extract_vocab_with_claude_vision(tmp_path, anthropic_key)
-
-                                    if vocab_list:
-                                        st.session_state.vocab_list = vocab_list
-                                        st.session_state.ocr_text = "\n".join([
-                                            f"{v.number}. {v.word} - {v.meaning}"
-                                            for v in vocab_list
-                                        ])
-                                        st.success(f"✅ {len(vocab_list)}개 단어 추출 완료!")
-                                    else:
-                                        st.error("단어를 추출할 수 없습니다. 이미지를 확인해주세요.")
-
+                            except ImportError:
+                                st.error("PDF 처리를 위해 PyMuPDF가 필요합니다. (pip install pymupdf)")
+                        else:
+                            # 이미지 처리
+                            vocab_list = process_image_ocr(tmp_path, ocr_method, st)
+                            if vocab_list:
+                                st.session_state.vocab_list = vocab_list
+                                st.session_state.ocr_text = "\n".join([
+                                    f"{v.number}. {v.word} - {v.meaning}"
+                                    for v in vocab_list
+                                ])
+                                st.success(f"✅ {len(vocab_list)}개 단어 추출 완료!")
                             else:
-                                # Google Cloud Vision 사용
-                                api_key = get_api_key()
+                                st.error("단어를 추출할 수 없습니다. 이미지를 확인해주세요.")
 
-                                if api_key:
-                                    st.info(f"🔑 Cloud Vision API 사용 중")
-                                else:
-                                    st.warning("⚠️ API 키 없음 - 기본 OCR 사용")
+                    except Exception as e:
+                        st.error(f"오류: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+                    finally:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
 
-                                # 이미지 회전 처리
-                                from PIL import Image
-                                img = Image.open(tmp_path)
+            # 추출된 텍스트 표시
+            if st.session_state.ocr_text:
+                st.text_area("추출된 텍스트", st.session_state.ocr_text, height=300)
 
-                                # 가로 이미지면 자동 회전
-                                if img.width > img.height:
-                                    img = img.rotate(-90, expand=True)
-                                    st.info("📐 가로 이미지 감지 - 자동 회전 적용")
-
-                                # 2단 분리 OCR
-                                full_text = ""
-                                width, height = img.size
-
-                                for idx, (left, right) in enumerate([(0, width // 2), (width // 2, width)]):
-                                    crop_img = img.crop((left, 0, right, height))
-                                    crop_path = tmp_path + f"_crop{idx}.jpg"
-                                    crop_img.save(crop_path, "JPEG", quality=95)
-
-                                    text = extract_text_from_image(
-                                        crop_path,
-                                        two_column=False,
-                                        use_cloud_vision=bool(api_key),
-                                        api_key=api_key
-                                    )
-                                    full_text += text + "\n"
-
-                                    if os.path.exists(crop_path):
-                                        os.unlink(crop_path)
-
-                                st.session_state.ocr_text = full_text
-                                st.session_state.vocab_list = parse_text_to_vocab(full_text)
-                                st.success(f"✅ {len(st.session_state.vocab_list)}개 단어 추출 완료!")
-
-                        except Exception as e:
-                            st.error(f"OCR 오류: {e}")
-                            import traceback
-                            st.code(traceback.format_exc())
-                        finally:
-                            if os.path.exists(tmp_path):
-                                os.unlink(tmp_path)
-
-                # 추출된 텍스트 표시
-                if st.session_state.ocr_text:
-                    st.text_area("추출된 텍스트", st.session_state.ocr_text, height=300)
-
-    # 탭 2: 텍스트 입력
-    with tab2:
+    # 탭 3: 텍스트 입력
+    with tab3:
         st.markdown("**직접 텍스트를 입력하거나 붙여넣으세요**")
         st.caption("형식: `번호,단어,뜻` 또는 `단어,뜻` (줄바꿈으로 구분)")
 
@@ -343,8 +404,8 @@ def main():
                     st.session_state.vocab_list = parse_text_to_vocab(content)
                 st.success(f"✅ {len(st.session_state.vocab_list)}개 단어 로드 완료!")
 
-    # 탭 3: 단어 목록
-    with tab3:
+    # 탭 4: 단어 목록
+    with tab4:
         st.markdown(f"**총 {len(st.session_state.vocab_list)}개 단어**")
 
         if st.session_state.vocab_list:
