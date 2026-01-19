@@ -34,6 +34,13 @@ if 'vocab_list' not in st.session_state:
 if 'ocr_text' not in st.session_state:
     st.session_state.ocr_text = ""
 
+# Secrets에서 API 키 자동 로드
+if 'gemini_api_key' not in st.session_state:
+    try:
+        st.session_state.gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
+    except:
+        st.session_state.gemini_api_key = ""
+
 
 def get_api_key():
     """API 키 가져오기 (Streamlit secrets 또는 세션)"""
@@ -172,20 +179,23 @@ def main():
             "우측 상단 **⋮ → 다른 브라우저로 열기** 또는 **Chrome/Safari**에서 직접 접속해주세요.")
 
     # ===== 메인 화면: API 키 입력 (모바일 친화적) =====
-    with st.expander("🔑 **API 키 설정 (필수)** - 클릭하여 열기", expanded=not st.session_state.get('gemini_api_key')):
-        st.markdown("**Gemini API 키**를 입력하세요. 무료로 발급받을 수 있습니다.")
-        st.markdown("👉 [Google AI Studio에서 API 키 발급](https://aistudio.google.com/apikey)")
+    # Secrets에 키가 설정되어 있으면 입력 불필요
+    if st.session_state.get('gemini_api_key'):
+        st.success("✅ API 키가 설정되어 있습니다. 바로 사용 가능!")
+    else:
+        with st.expander("🔑 **API 키 설정 (필수)** - 클릭하여 열기", expanded=True):
+            st.markdown("**Gemini API 키**를 입력하세요. 무료로 발급받을 수 있습니다.")
+            st.markdown("👉 [Google AI Studio에서 API 키 발급](https://aistudio.google.com/apikey)")
 
-        gemini_key_main = st.text_input(
-            "Gemini API 키 입력",
-            type="password",
-            key="main_gemini_key",
-            value=st.session_state.get('gemini_api_key', ''),
-            placeholder="여기에 API 키를 붙여넣으세요"
-        )
-        if gemini_key_main:
-            st.session_state.gemini_api_key = gemini_key_main
-            st.success("✅ API 키가 저장되었습니다!")
+            gemini_key_main = st.text_input(
+                "Gemini API 키 입력",
+                type="password",
+                key="main_gemini_key",
+                placeholder="여기에 API 키를 붙여넣으세요"
+            )
+            if gemini_key_main:
+                st.session_state.gemini_api_key = gemini_key_main
+                st.rerun()  # 키 입력 후 화면 새로고침
 
     # 사이드바: 고급 설정
     with st.sidebar:
