@@ -18,6 +18,14 @@ except ImportError:
 # pydub for audio processing
 try:
     from pydub import AudioSegment
+    # Streamlit Cloud에서 ffmpeg 경로 설정
+    import shutil
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        AudioSegment.converter = ffmpeg_path
+        ffprobe_path = shutil.which("ffprobe")
+        if ffprobe_path:
+            AudioSegment.ffprobe = ffprobe_path
     HAS_PYDUB = True
 except ImportError:
     HAS_PYDUB = False
