@@ -13,6 +13,9 @@ pymupdf>=1.23.0
 # Google Cloud Vision (OCR)
 google-cloud-vision>=3.4.0
 
+# Google Gemini AI (공식 SDK)
+google-generativeai>=0.4.0
+
 # Anthropic Claude Vision (추천 - 표 형식 단어장에 최적)
 anthropic>=0.70.0
 

@@ -471,7 +471,7 @@ def load_vocab_from_text(file_path: str) -> List[VocabItem]:
 def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[VocabItem]:
     """
     Google Gemini Vision API로 이미지에서 단어 목록 직접 추출
-    REST API 직접 호출 방식 (SDK 문제 우회)
+    공식 SDK 사용
 
     Args:
         image_path: 이미지 파일 경로
@@ -481,22 +481,14 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
         VocabItem 리스트
     """
     import json
-    import base64
-    import requests
+    import google.generativeai as genai
+    from PIL import Image
 
-    # 이미지를 base64로 인코딩
-    with open(image_path, 'rb') as f:
-        image_data = base64.standard_b64encode(f.read()).decode('utf-8')
+    # API 키 설정
+    genai.configure(api_key=api_key)
 
-    # MIME 타입 결정
-    ext = image_path.lower().split('.')[-1]
-    mime_type = {
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'png': 'image/png',
-        'gif': 'image/gif',
-        'webp': 'image/webp'
-    }.get(ext, 'image/jpeg')
+    # 이미지 로드
+    img = Image.open(image_path)
 
     prompt = """이 이미지는 영어 단어장입니다.
 이미지에서 모든 영어 단어와 한국어 뜻을 추출해주세요.
@@ -515,86 +507,51 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
 - 2단으로 된 경우 왼쪽 단부터 순서대로
 - JSON만 출력하고 다른 설명은 하지 마세요"""
 
-    # 무료 티어에서 확실히 작동하는 모델만 사용
-    models_to_try = [
-        'gemini-1.5-flash',           # 무료 티어 OK
-        'gemini-1.5-pro',             # 무료 티어 OK
-    ]
-
+    # 무료 티어에서 작동하는 모델 시도
+    models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro']
     last_error = None
-    errors_log = []  # 디버깅용
+    errors_log = []
 
     for model_name in models_to_try:
         try:
-            # REST API 직접 호출
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content([prompt, img])
 
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {
-                            "inlineData": {
-                                "mimeType": mime_type,
-                                "data": image_data
-                            }
-                        },
-                        {
-                            "text": prompt
-                        }
-                    ]
-                }],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "maxOutputTokens": 4096
-                }
-            }
+            response_text = response.text.strip()
 
-            response = requests.post(url, json=payload, timeout=60)
-            result = response.json()
+            # JSON 추출 (코드 블록 안에 있을 수 있음)
+            if '```json' in response_text:
+                response_text = response_text.split('```json')[1].split('```')[0]
+            elif '```' in response_text:
+                response_text = response_text.split('```')[1].split('```')[0]
 
-            # 에러 체크
-            if 'error' in result:
-                error_code = result['error'].get('code')
-                error_msg = result['error'].get('message', '')[:100]  # 메시지 앞부분만
-                errors_log.append(f"{model_name}: {error_code}")
-                # 404 (모델 없음) 또는 429 (할당량 초과)면 다음 모델 시도
-                if error_code in [404, 429]:
-                    last_error = Exception(f"모델 {model_name}: {error_code} 에러")
-                    continue
-                # 다른 에러면 예외 발생
-                raise Exception(f"{error_code} {result['error'].get('status')}. {error_msg}")
+            vocab_data = json.loads(response_text.strip())
+            vocab_list = []
+            for item in vocab_data:
+                vocab_list.append(VocabItem(
+                    number=int(item.get('number', len(vocab_list) + 1)),
+                    word=item.get('word', ''),
+                    meaning=item.get('meaning', '')
+                ))
+            return vocab_list
 
-            # 응답 추출
-            if 'candidates' in result and result['candidates']:
-                response_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-
-                # JSON 추출 (코드 블록 안에 있을 수 있음)
-                if '```json' in response_text:
-                    response_text = response_text.split('```json')[1].split('```')[0]
-                elif '```' in response_text:
-                    response_text = response_text.split('```')[1].split('```')[0]
-
-                vocab_data = json.loads(response_text.strip())
-                vocab_list = []
-                for item in vocab_data:
-                    vocab_list.append(VocabItem(
-                        number=int(item.get('number', len(vocab_list) + 1)),
-                        word=item.get('word', ''),
-                        meaning=item.get('meaning', '')
-                    ))
-                return vocab_list
-
-        except json.JSONDecodeError:
-            # JSON 파싱 실패 시 다음 모델 시도
+        except json.JSONDecodeError as e:
+            errors_log.append(f"{model_name}: JSON 파싱 실패")
             continue
         except Exception as e:
+            error_str = str(e)
+            if '429' in error_str or 'quota' in error_str.lower():
+                errors_log.append(f"{model_name}: 할당량 초과")
+            elif '404' in error_str:
+                errors_log.append(f"{model_name}: 모델 없음")
+            else:
+                errors_log.append(f"{model_name}: {error_str[:50]}")
             last_error = e
-            # 계속 다음 모델 시도 (모든 모델 실패 시 마지막 에러 반환)
             continue
 
     # 모든 모델 실패
     if errors_log:
-        raise Exception(f"모든 모델 실패: {', '.join(errors_log)}. API 키를 확인하세요.")
+        raise Exception(f"모든 모델 실패: {', '.join(errors_log)}")
     if last_error:
         raise last_error
     return []
