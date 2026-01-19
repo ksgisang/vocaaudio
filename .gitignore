@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 생성된 오디오 파일
+*.mp3
+
+# 이미지 폴더 (테스트용)
+img/
+
+# 테스트 파일
+vocab_*.txt
+word_*.txt
+
+# macOS
+.DS_Store

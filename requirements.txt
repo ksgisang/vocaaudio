@@ -1,0 +1,17 @@
+# VocaAudio - Streamlit Cloud 배포용
+streamlit>=1.28.0
+edge-tts>=6.1.0
+pydub>=0.25.1
+Pillow>=10.0.0
+openpyxl>=3.1.0
+pandas>=2.0.0
+requests>=2.31.0
+
+# Google Cloud Vision (OCR)
+google-cloud-vision>=3.4.0
+
+# Anthropic Claude Vision (추천 - 표 형식 단어장에 최적)
+anthropic>=0.70.0
+
+# Streamlit Cloud에서 ffmpeg 대체용
+# pydub이 내부적으로 사용하는 ffmpeg는 Streamlit Cloud에 기본 설치됨
