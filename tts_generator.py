@@ -180,10 +180,33 @@ def generate_vocab_audio(
 ) -> bool:
     """
     어휘 목록에서 학습용 오디오 생성 (동기 래퍼)
+    Streamlit 환경에서도 작동하도록 이벤트 루프 처리
     """
-    return asyncio.run(
-        generate_vocab_audio_async(vocab_list, output_path, config, progress_callback)
-    )
+    try:
+        # 기존 이벤트 루프가 있는지 확인 (Streamlit 환경)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # 이미 실행 중인 루프가 있으면 nest_asyncio 사용 또는 새 스레드에서 실행
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    generate_vocab_audio_async(vocab_list, output_path, config, progress_callback)
+                )
+                return future.result()
+        else:
+            return asyncio.run(
+                generate_vocab_audio_async(vocab_list, output_path, config, progress_callback)
+            )
+    except Exception as e:
+        print(f"오디오 생성 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 if __name__ == "__main__":

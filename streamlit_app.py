@@ -521,10 +521,12 @@ def main():
                             mime="audio/mpeg"
                         )
                     else:
-                        st.error("오디오 생성에 실패했습니다.")
+                        st.error("오디오 생성에 실패했습니다. ffmpeg가 설치되어 있는지 확인하세요.")
 
                 except Exception as e:
                     st.error(f"오류 발생: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
                 finally:
                     if os.path.exists(tmp_path):
