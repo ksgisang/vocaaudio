@@ -51,7 +51,7 @@ def process_image_ocr(image_path: str, ocr_method: str, st_module) -> list:
     if ocr_method == "Gemini Vision (무료/추천)":
         gemini_key = st.session_state.get('gemini_api_key', '')
         if not gemini_key:
-            st_module.error("❌ 사이드바에서 Gemini API 키를 입력해주세요.")
+            st_module.error("❌ 상단의 'API 키 설정'에서 Gemini API 키를 입력해주세요.")
             return []
         st_module.info("🤖 Gemini Vision으로 단어 추출 중...")
         return extract_vocab_with_gemini_vision(image_path, gemini_key)
@@ -167,46 +167,47 @@ def main():
     st.title("🎧 VocaAudio")
     st.markdown("**어휘 학습 오디오 생성기** - 스마트폰 사진에서 단어 추출 & MP3 생성")
 
-    # 사이드바: 설정
+    # ===== 모바일 인앱 브라우저 안내 =====
+    st.info("📱 **카카오톡/인스타그램 등에서 접속 시** 카메라가 작동하지 않을 수 있습니다. "
+            "우측 상단 **⋮ → 다른 브라우저로 열기** 또는 **Chrome/Safari**에서 직접 접속해주세요.")
+
+    # ===== 메인 화면: API 키 입력 (모바일 친화적) =====
+    with st.expander("🔑 **API 키 설정 (필수)** - 클릭하여 열기", expanded=not st.session_state.get('gemini_api_key')):
+        st.markdown("**Gemini API 키**를 입력하세요. 무료로 발급받을 수 있습니다.")
+        st.markdown("👉 [Google AI Studio에서 API 키 발급](https://aistudio.google.com/apikey)")
+
+        gemini_key_main = st.text_input(
+            "Gemini API 키 입력",
+            type="password",
+            key="main_gemini_key",
+            value=st.session_state.get('gemini_api_key', ''),
+            placeholder="여기에 API 키를 붙여넣으세요"
+        )
+        if gemini_key_main:
+            st.session_state.gemini_api_key = gemini_key_main
+            st.success("✅ API 키가 저장되었습니다!")
+
+    # 사이드바: 고급 설정
     with st.sidebar:
-        st.header("⚙️ 설정")
+        st.header("⚙️ 고급 설정")
 
         # OCR 방식 선택
-        st.subheader("🔍 OCR 방식")
+        st.subheader("🔍 OCR 엔진")
         ocr_method = st.radio(
             "OCR 엔진 선택",
             ["Gemini Vision (무료/추천)", "Claude Vision", "Google Cloud Vision"],
             index=0,
-            help="Gemini Vision이 무료이고 표 형식 단어장 인식에 좋습니다."
+            label_visibility="collapsed"
         )
         st.session_state.ocr_method = ocr_method
 
-        # API 키 설정
-        if ocr_method == "Gemini Vision (무료/추천)":
-            st.subheader("🔑 Google AI Studio API 키")
-            gemini_key = st.text_input(
-                "Gemini API 키",
-                type="password",
-                help="https://aistudio.google.com 에서 무료 발급"
-            )
-            if gemini_key:
-                st.session_state.gemini_api_key = gemini_key
-        elif ocr_method == "Claude Vision":
-            st.subheader("🔑 Anthropic API 키")
-            anthropic_key = st.text_input(
-                "Anthropic API 키",
-                type="password",
-                help="Claude Vision 사용에 필요 (유료)"
-            )
+        # 다른 OCR 엔진용 API 키 (Gemini는 메인 화면에서 입력)
+        if ocr_method == "Claude Vision":
+            anthropic_key = st.text_input("Anthropic API 키", type="password", key="sidebar_anthropic")
             if anthropic_key:
                 st.session_state.anthropic_api_key = anthropic_key
-        else:
-            st.subheader("🔑 Google Cloud Vision API")
-            api_key_input = st.text_input(
-                "Google API 키",
-                type="password",
-                help="높은 OCR 인식률을 위해 권장."
-            )
+        elif ocr_method == "Google Cloud Vision":
+            api_key_input = st.text_input("Google Cloud API 키", type="password", key="sidebar_google")
             if api_key_input:
                 st.session_state.api_key = api_key_input
 
