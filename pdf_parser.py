@@ -503,8 +503,9 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
     # 이미지 로드
     img = Image.open(image_path)
 
-    # 시도할 모델 목록
+    # 시도할 모델 목록 (AI Studio에서 작동하는 모델 우선)
     models_to_try = [
+        'gemini-3-flash-preview',     # AI Studio 기본 모델
         'gemini-2.0-flash',
         'gemini-1.5-flash',
         'gemini-1.5-pro',
