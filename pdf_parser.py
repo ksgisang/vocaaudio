@@ -515,16 +515,14 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
 - 2단으로 된 경우 왼쪽 단부터 순서대로
 - JSON만 출력하고 다른 설명은 하지 마세요"""
 
-    # 여러 모델 시도 (무료 티어 사용 가능한 모델 우선)
+    # 무료 티어에서 확실히 작동하는 모델만 사용
     models_to_try = [
-        'gemini-1.5-flash',           # 무료 티어 OK, 빠름
-        'gemini-1.5-flash-latest',
-        'gemini-1.5-pro',             # 무료 티어 OK, 더 정확
-        'gemini-1.5-pro-latest',
-        'gemini-2.0-flash-exp',       # 유료 또는 실험 (fallback)
+        'gemini-1.5-flash',           # 무료 티어 OK
+        'gemini-1.5-pro',             # 무료 티어 OK
     ]
 
     last_error = None
+    errors_log = []  # 디버깅용
 
     for model_name in models_to_try:
         try:
@@ -557,12 +555,14 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
             # 에러 체크
             if 'error' in result:
                 error_code = result['error'].get('code')
+                error_msg = result['error'].get('message', '')[:100]  # 메시지 앞부분만
+                errors_log.append(f"{model_name}: {error_code}")
                 # 404 (모델 없음) 또는 429 (할당량 초과)면 다음 모델 시도
                 if error_code in [404, 429]:
                     last_error = Exception(f"모델 {model_name}: {error_code} 에러")
                     continue
                 # 다른 에러면 예외 발생
-                raise Exception(f"{error_code} {result['error'].get('status')}. {result['error'].get('message', '')}")
+                raise Exception(f"{error_code} {result['error'].get('status')}. {error_msg}")
 
             # 응답 추출
             if 'candidates' in result and result['candidates']:
@@ -593,6 +593,8 @@ def extract_vocab_with_gemini_vision(image_path: str, api_key: str) -> List[Voca
             continue
 
     # 모든 모델 실패
+    if errors_log:
+        raise Exception(f"모든 모델 실패: {', '.join(errors_log)}. API 키를 확인하세요.")
     if last_error:
         raise last_error
     return []
